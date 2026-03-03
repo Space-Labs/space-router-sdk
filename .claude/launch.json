@@ -12,6 +12,12 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd coordination-api && python3 -m app.main"],
       "port": 8000
+    },
+    {
+      "name": "home-node",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd home-node && python3 -m app.main"],
+      "port": 9090
     }
   ]
 }

@@ -10,7 +10,7 @@ Space Router provides a single proxy URL that routes agent HTTP traffic through 
 |---|---|---|
 | **Proxy Gateway** | Python / asyncio | Agent-facing HTTP forward proxy. Authenticates requests, selects a residential node, and tunnels traffic through it. |
 | **Coordination API** | Python / FastAPI | Central brain. Node registry, routing decisions, health monitoring, API key management. |
-| Home Node Daemon | Go | Runs on residential machines. Accepts proxied requests and forwards them from its residential IP. |
+| **Home Node Daemon** | Python / asyncio | Runs on residential machines (macOS). Accepts proxied requests and forwards them from its residential IP. |
 
 ```
                      ┌──────────────────┐
@@ -28,17 +28,17 @@ Space Router provides a single proxy URL that routes agent HTTP traffic through 
                  ┌────────────┼────────────┐
                  ▼            ▼            ▼
            Home Node    Home Node    proxyjet.io
-           (residential) (residential) (fallback)
+           :9090        :9090        (fallback)
 ```
 
-## Quick Start
+## Quick Start (Local Development)
 
 ### Prerequisites
 
 - Python 3.12+
 - pip
 
-### Coordination API
+### 1. Coordination API
 
 ```bash
 cd coordination-api
@@ -59,7 +59,7 @@ export SR_PROXYJET_PASSWORD=your-pass
 python -m app.main
 ```
 
-### Proxy Gateway
+### 2. Proxy Gateway
 
 ```bash
 cd proxy-gateway
@@ -73,11 +73,31 @@ export SR_COORDINATION_API_SECRET=shared-secret
 python -m app.main
 ```
 
-### Database Setup
+### 3. Home Node Daemon
+
+```bash
+cd home-node
+pip install -r requirements.txt
+
+# Set required environment variables
+export SR_COORDINATION_API_URL=http://localhost:8000
+
+# For local dev, set PUBLIC_IP so it doesn't try external IP detection
+export SR_PUBLIC_IP=127.0.0.1
+
+# Optional: set node metadata
+export SR_NODE_LABEL=my-macbook
+export SR_NODE_REGION=us-west
+
+# Start the daemon (listens on :9090)
+python -m app.main
+```
+
+### 4. Database Setup
 
 Run `coordination-api/schema.sql` in the Supabase SQL Editor to create the required tables (`api_keys`, `nodes`, `route_outcomes`, `request_logs`).
 
-### Create an API Key
+### 5. Create an API Key
 
 ```bash
 curl -X POST http://localhost:8000/api-keys \
@@ -87,7 +107,15 @@ curl -X POST http://localhost:8000/api-keys \
 
 Save the `api_key` from the response — it's only shown once.
 
-### Usage
+### 6. Test End-to-End
+
+```bash
+# Send a request through the full pipeline:
+# Agent → Proxy Gateway → Home Node → target
+curl -x http://sr_live_YOUR_API_KEY@localhost:8080 http://httpbin.org/ip
+```
+
+### Usage in Code
 
 Agents configure their HTTP client with the Space Router proxy URL:
 
@@ -107,7 +135,95 @@ Or with curl:
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 https://example.com
 ```
 
-### Running Tests
+## Production Deployment
+
+### Coordination API (Fly.io)
+
+```bash
+cd coordination-api
+
+# Set secrets
+fly secrets set \
+  SR_SUPABASE_URL=https://your-project.supabase.co \
+  SR_SUPABASE_SERVICE_KEY=your-service-key \
+  SR_INTERNAL_API_SECRET=your-strong-secret \
+  SR_PROXYJET_HOST=proxy.proxyjet.io \
+  SR_PROXYJET_PORT=8080 \
+  SR_PROXYJET_USERNAME=your-user \
+  SR_PROXYJET_PASSWORD=your-pass
+
+fly deploy
+```
+
+### Proxy Gateway (Fly.io)
+
+```bash
+cd proxy-gateway
+
+fly secrets set \
+  SR_COORDINATION_API_URL=https://coordination.spacerouter.io \
+  SR_COORDINATION_API_SECRET=your-strong-secret
+
+fly deploy
+```
+
+### Home Node Daemon (macOS)
+
+The Home Node runs on residential machines. For production on macOS:
+
+**Option A: Run directly**
+
+```bash
+cd home-node
+pip install -r requirements.txt
+
+export SR_COORDINATION_API_URL=https://coordination.spacerouter.io
+export SR_NODE_LABEL=macbook-home
+export SR_NODE_REGION=us-west
+
+python -m app.main
+```
+
+**Option B: Install as a macOS launchd service (auto-start on boot)**
+
+```bash
+# 1. Install the code
+sudo mkdir -p /opt/spacerouter/home-node
+sudo cp -r home-node/* /opt/spacerouter/home-node/
+cd /opt/spacerouter/home-node && pip install -r requirements.txt
+
+# 2. Edit the plist to set your Coordination API URL and node metadata
+vim home-node/launchd/com.spacerouter.homenode.plist
+
+# 3. Install and start the service
+cp home-node/launchd/com.spacerouter.homenode.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.spacerouter.homenode.plist
+
+# Check status
+launchctl list | grep spacerouter
+
+# View logs
+tail -f /tmp/spacerouter-homenode.stdout.log
+tail -f /tmp/spacerouter-homenode.stderr.log
+
+# Stop the service
+launchctl unload ~/Library/LaunchAgents/com.spacerouter.homenode.plist
+```
+
+**Option C: Docker**
+
+```bash
+cd home-node
+docker build -t spacerouter-homenode .
+docker run -d \
+  -p 9090:9090 \
+  -e SR_COORDINATION_API_URL=https://coordination.spacerouter.io \
+  -e SR_NODE_LABEL=docker-node \
+  -e SR_NODE_REGION=us-west \
+  spacerouter-homenode
+```
+
+## Running Tests
 
 ```bash
 # Proxy Gateway (31 tests)
@@ -115,6 +231,9 @@ cd proxy-gateway && pytest tests/ -v
 
 # Coordination API (22 tests)
 cd coordination-api && pytest tests/ -v
+
+# Home Node Daemon
+cd home-node && pytest tests/ -v
 ```
 
 ## Configuration
@@ -147,6 +266,20 @@ All settings are via environment variables with the `SR_` prefix.
 | `SR_PROXYJET_PORT` | 8080 | Proxyjet.io proxy port |
 | `SR_PROXYJET_USERNAME` | — | Proxyjet.io auth username |
 | `SR_PROXYJET_PASSWORD` | — | Proxyjet.io auth password |
+
+### Home Node Daemon
+
+| Variable | Default | Description |
+|---|---|---|
+| `SR_NODE_PORT` | 9090 | TCP server port |
+| `SR_COORDINATION_API_URL` | http://localhost:8000 | Coordination API base URL |
+| `SR_PUBLIC_IP` | (auto-detected) | Public IP address; auto-detected if empty |
+| `SR_NODE_TYPE` | residential | Node type for registration |
+| `SR_NODE_LABEL` | — | Human-readable label for this node |
+| `SR_NODE_REGION` | — | Region identifier (e.g., us-west, eu-central) |
+| `SR_BUFFER_SIZE` | 65536 | TCP read buffer size |
+| `SR_REQUEST_TIMEOUT` | 30.0 | Timeout (seconds) for connecting to target servers |
+| `SR_RELAY_TIMEOUT` | 300.0 | Max duration (seconds) for a CONNECT tunnel relay |
 
 ## API Reference
 
@@ -206,3 +339,14 @@ Standard HTTP forward proxy. Agents send requests through it like any other prox
 | `GET /healthz` | Liveness check |
 | `GET /readyz` | Readiness check |
 | `GET /metrics` | Request counts and connection stats |
+
+### Home Node Daemon (port 9090)
+
+The Home Node accepts raw TCP connections from the Proxy Gateway. It supports:
+
+- **CONNECT tunneling** — for HTTPS traffic, establishes a bidirectional TCP tunnel to the target
+- **HTTP forward proxying** — for plain HTTP traffic, forwards the request and streams the response back
+
+The Home Node strips `X-SpaceRouter-*` and `Proxy-Authorization` headers before forwarding to target servers.
+
+On startup it auto-registers with the Coordination API (`POST /nodes`) and sets status to `offline` on graceful shutdown.
