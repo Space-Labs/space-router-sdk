@@ -9,8 +9,8 @@ Space Router provides a single proxy URL that routes agent HTTP traffic through 
 | Component | Language | Description |
 |---|---|---|
 | **Proxy Gateway** | Python / asyncio | Agent-facing HTTP forward proxy. Authenticates requests, selects a residential node, and tunnels traffic through it. |
-| **Coordination API** | Python / FastAPI | Central brain. Node registry, routing decisions, health monitoring, API key management. |
-| **Home Node Daemon** | Python / asyncio | Runs on residential machines (macOS). Accepts proxied requests and forwards them from its residential IP. |
+| **Coordination API** | Python / FastAPI | Central brain. Node registry, IP classification via ipinfo.io, routing decisions, health monitoring, API key management. |
+| **Home Node Daemon** | Python / asyncio | Runs on residential machines (macOS). Accepts proxied requests and forwards them from its residential IP. Receives IP classification from the Coordination API at registration. |
 
 ```
                      ┌──────────────────┐
@@ -18,13 +18,13 @@ Space Router provides a single proxy URL that routes agent HTTP traffic through 
   (HTTP proxy)       │  :8080 (proxy)   │
                      │  :8081 (mgmt)    │
                      └────────┬─────────┘
-                              │  Tailscale (WireGuard)
+                              │
                      ┌────────▼─────────┐
                      │ Coordination API │
                      │  :8000           │
                      │  (Database)      │
                      └────────┬─────────┘
-                              │  Tailscale (WireGuard)
+                              │  UPnP / Direct IP
                  ┌────────────┼────────────┐
                  ▼            ▼            ▼
            Home Node    Home Node    proxyjet.io
@@ -32,7 +32,7 @@ Space Router provides a single proxy URL that routes agent HTTP traffic through 
        (residential)  (residential)
 ```
 
-Home Nodes run on residential machines behind NAT. [Tailscale](https://tailscale.com/) provides a WireGuard mesh VPN so the Proxy Gateway can reach them without port forwarding.
+Home Nodes run on residential machines behind NAT. UPnP/NAT-PMP automatically configures port forwarding on the router so the Proxy Gateway can reach them without manual setup.
 
 ## Database Options
 
@@ -98,6 +98,9 @@ export SR_USE_SQLITE=true
 export SR_SQLITE_DB_PATH=space_router.db
 export SR_INTERNAL_API_SECRET=local-dev-secret
 
+# Optional: ipinfo.io token for IP classification (works without, but rate-limited)
+export SR_IPINFO_TOKEN=your-ipinfo-token
+
 # Optional: Configure fallback proxy
 export SR_PROXYJET_HOST=proxy.proxyjet.io
 export SR_PROXYJET_PORT=8080
@@ -134,8 +137,8 @@ export SR_COORDINATION_API_URL=http://localhost:8000
 # For local dev, set PUBLIC_IP so it doesn't try external IP detection
 export SR_PUBLIC_IP=127.0.0.1
 
-# Tailscale: disabled for local dev (no NAT to traverse)
-export SR_TAILSCALE_ENABLED=false
+# UPnP: disabled for local dev (no NAT to traverse)
+export SR_UPNP_ENABLED=false
 
 # Optional: set node metadata
 export SR_NODE_LABEL=my-macbook
@@ -161,6 +164,12 @@ Save the `api_key` from the response — it's only shown once.
 # Send a request through the full pipeline:
 # Agent → Proxy Gateway → Home Node → target
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 http://httpbin.org/ip
+
+# Request a specific IP type and region:
+curl -x http://sr_live_YOUR_API_KEY@localhost:8080 \
+  -H "X-SpaceRouter-IP-Type: residential" \
+  -H "X-SpaceRouter-Region: Seoul, KR" \
+  http://httpbin.org/ip
 ```
 
 ## Quick Start (Production with Supabase)
@@ -213,32 +222,64 @@ Or with curl:
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 https://example.com
 ```
 
-## Tailscale Setup
+### IP-Based Routing
 
-Home Nodes run on residential machines behind NAT routers. Tailscale creates a WireGuard mesh VPN so the Proxy Gateway can reach Home Nodes without port forwarding.
+Agents can request a specific IP type and region by adding headers to their proxy requests:
 
-### 1. Create a Tailscale account
+```python
+import httpx
 
-Sign up at [tailscale.com](https://tailscale.com/) and create a tailnet.
+proxy_url = "http://sr_live_YOUR_API_KEY@localhost:8080"
 
-### 2. Configure ACLs
+async with httpx.AsyncClient(proxy=proxy_url) as client:
+    response = await client.get(
+        "https://target-website.com/data",
+        headers={
+            "X-SpaceRouter-IP-Type": "residential",   # residential, mobile, datacenter, business
+            "X-SpaceRouter-Region": "Seoul, KR",       # city, country substring match
+        },
+    )
+```
 
-Apply `tailscale/acl.json` to your tailnet via the [Tailscale admin console](https://login.tailscale.com/admin/acls). This restricts traffic so only the Proxy Gateway can reach Home Nodes.
+When a Home Node registers, the Coordination API calls [ipinfo.io](https://ipinfo.io) to classify its public IP:
 
-### 3. Generate auth keys
+- **IP type:** residential, mobile, datacenter, or business (derived from ipinfo privacy/company/carrier/org data)
+- **Region:** city and country code (e.g., "Seoul, KR", "Ashburn, US")
 
-In the Tailscale admin console, create reusable + ephemeral auth keys for each component:
+The routing headers are stripped before the request is forwarded to the Home Node. If no node matches the requested type/region, the router falls back to any available node.
 
-- `tag:spacerouter-gateway` — for the Proxy Gateway
-- `tag:spacerouter-node` — for Home Nodes
+## UPnP / NAT-PMP Setup
 
-### 4. Set auth keys
+Home Nodes run on residential machines behind NAT routers. UPnP (Universal Plug and Play) and NAT-PMP (NAT Port Mapping Protocol) automatically configure port forwarding on the router so the Proxy Gateway can reach Home Nodes.
 
-For each component, set `SR_TAILSCALE_AUTH_KEY` to the appropriate auth key. The Home Node will auto-detect its Tailscale IP and register it as the endpoint URL.
+### How it works
 
-### Dual-mode support
+1. On startup, the Home Node discovers the router via UPnP/NAT-PMP
+2. It requests a port mapping (e.g. external port 9090 → internal port 9090)
+3. The router's external IP and mapped port are registered with the Coordination API
+4. The Proxy Gateway connects to the Home Node via the router's public IP
+5. On shutdown, the port mapping is removed
 
-Tailscale is the default connectivity mode. Home Nodes that have port forwarding configured can set `SR_TAILSCALE_ENABLED=false` to register their public IP directly.
+### Requirements
+
+- The router must support UPnP IGD or NAT-PMP (most consumer routers do)
+- UPnP must be enabled in the router's settings
+- The `miniupnpc` Python package (installed automatically via requirements.txt)
+
+### Configuration
+
+UPnP is enabled by default. Set `SR_UPNP_ENABLED=false` to disable it and fall back to manual port forwarding (direct mode).
+
+The lease duration controls how long the port mapping persists on the router. The Home Node automatically renews the mapping before it expires:
+
+```bash
+export SR_UPNP_ENABLED=true        # Enable UPnP (default)
+export SR_UPNP_LEASE_DURATION=3600  # Lease duration in seconds (default: 3600)
+```
+
+### Direct mode (manual port forwarding)
+
+If UPnP is unavailable or disabled, Home Nodes fall back to direct mode. In this case, you must manually configure port forwarding on your router to forward TCP port 9090 to the Home Node machine.
 
 ## Production Deployment
 
@@ -253,6 +294,7 @@ fly secrets set \
   SR_SUPABASE_URL=https://your-project.supabase.co \
   SR_SUPABASE_SERVICE_KEY=your-service-key \
   SR_INTERNAL_API_SECRET=your-strong-secret \
+  SR_IPINFO_TOKEN=your-ipinfo-token \
   SR_PROXYJET_HOST=proxy.proxyjet.io \
   SR_PROXYJET_PORT=8080 \
   SR_PROXYJET_USERNAME=your-user \
@@ -278,8 +320,7 @@ cd proxy-gateway
 
 fly secrets set \
   SR_COORDINATION_API_URL=https://coordination.spacerouter.io \
-  SR_COORDINATION_API_SECRET=your-strong-secret \
-  SR_TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
+  SR_COORDINATION_API_SECRET=your-strong-secret
 
 fly deploy
 ```
@@ -295,7 +336,6 @@ cd home-node
 pip install -r requirements.txt
 
 export SR_COORDINATION_API_URL=https://coordination.spacerouter.io
-export SR_TAILSCALE_AUTH_KEY=tskey-auth-xxxxx  # Auto-joins the tailnet
 export SR_NODE_LABEL=macbook-home
 export SR_NODE_REGION=us-west
 
@@ -344,13 +384,13 @@ docker run -d \
 ## Running Tests
 
 ```bash
-# Proxy Gateway (31 tests)
-cd proxy-gateway && pytest tests/ -v
-
-# Coordination API (22 tests)
+# Coordination API (47 tests)
 cd coordination-api && pytest tests/ -v
 
-# Home Node Daemon
+# Proxy Gateway (36 tests)
+cd proxy-gateway && pytest tests/ -v
+
+# Home Node Daemon (36 tests)
 cd home-node && pytest tests/ -v
 ```
 
@@ -379,6 +419,7 @@ All settings are via environment variables with the `SR_` prefix.
 |---|---|---|
 | `SR_PORT` | 8000 | API server port |
 | `SR_INTERNAL_API_SECRET` | — | Shared secret for internal endpoints |
+| `SR_IPINFO_TOKEN` | — | ipinfo.io API token for IP classification (optional — free tier works without) |
 | `SR_SUPABASE_URL` | — | Supabase project URL |
 | `SR_SUPABASE_SERVICE_KEY` | — | Supabase service role key |
 | `SR_PROXYJET_HOST` | — | Proxyjet.io proxy hostname |
@@ -401,8 +442,8 @@ All settings are via environment variables with the `SR_` prefix.
 | `SR_BUFFER_SIZE` | 65536 | TCP read buffer size |
 | `SR_REQUEST_TIMEOUT` | 30.0 | Timeout (seconds) for connecting to target servers |
 | `SR_RELAY_TIMEOUT` | 300.0 | Max duration (seconds) for a CONNECT tunnel relay |
-| `SR_TAILSCALE_ENABLED` | true | Enable Tailscale for NAT traversal |
-| `SR_TAILSCALE_AUTH_KEY` | — | Tailscale auth key for auto-join (reusable + ephemeral recommended) |
+| `SR_UPNP_ENABLED` | true | Enable UPnP/NAT-PMP for automatic port forwarding |
+| `SR_UPNP_LEASE_DURATION` | 3600 | UPnP port mapping lease duration in seconds (0 = permanent) |
 
 ## API Reference
 
@@ -411,6 +452,15 @@ All settings are via environment variables with the `SR_` prefix.
 Standard HTTP forward proxy. Agents send requests through it like any other proxy.
 
 **Authentication:** `Proxy-Authorization: Basic base64(api_key:)`
+
+**Request headers (optional routing):**
+
+| Header | Description |
+|---|---|
+| `X-SpaceRouter-IP-Type` | Preferred IP type: `residential`, `mobile`, `datacenter`, `business` |
+| `X-SpaceRouter-Region` | Preferred region substring (e.g., `Seoul, KR`). Case-insensitive match. |
+
+These headers are stripped before the request is forwarded to the Home Node.
 
 **Response headers:**
 
@@ -445,7 +495,7 @@ Standard HTTP forward proxy. Agents send requests through it like any other prox
 | Endpoint | Description |
 |---|---|
 | `POST /internal/auth/validate` | Validate an API key hash |
-| `GET /internal/route/select` | Select best available node |
+| `GET /internal/route/select` | Select best available node. Optional query params: `ip_type`, `ip_region` |
 | `POST /internal/route/report` | Report routing outcome |
 
 #### Health
@@ -472,4 +522,6 @@ The Home Node accepts raw TCP connections from the Proxy Gateway. It supports:
 
 The Home Node strips `X-SpaceRouter-*` and `Proxy-Authorization` headers before forwarding to target servers.
 
-On startup it detects its Tailscale IP (if enabled), auto-registers with the Coordination API (`POST /nodes`), and sets status to `offline` on graceful shutdown. When Tailscale is active, the registered endpoint uses the Tailscale IP for NAT traversal while the residential public IP is preserved as metadata.
+On startup it configures UPnP/NAT-PMP port mapping (if enabled), auto-registers with the Coordination API (`POST /nodes`), and sets status to `offline` on graceful shutdown. When UPnP is active, the registered endpoint uses the router's external IP with the mapped port while the residential public IP is preserved as metadata.
+
+At registration, the Coordination API classifies the node's public IP via ipinfo.io and returns the `ip_type` (residential, mobile, datacenter, business) and `ip_region` (e.g., "Seoul, KR") in the response. The Home Node logs this classification.

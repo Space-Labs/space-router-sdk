@@ -46,6 +46,8 @@ class SQLiteClient:
             health_score REAL NOT NULL DEFAULT 1.0,
             region TEXT,
             label TEXT,
+            ip_type TEXT,
+            ip_region TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )

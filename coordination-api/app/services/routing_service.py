@@ -2,7 +2,7 @@
 
 import logging
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -19,6 +19,8 @@ class ProxyNode:
     node_id: str
     endpoint_url: str
     health_score: float
+    ip_type: str = ""
+    ip_region: str = ""
 
 
 class RoutingService:
@@ -33,17 +35,32 @@ class RoutingService:
         self._nodes_cache: Dict[str, ProxyNode] = {}
         self._node_health: Dict[str, float] = {}
 
-    async def select_node(self) -> Optional[ProxyNode]:
-        """Select the best available node for routing traffic."""
+    async def select_node(
+        self,
+        *,
+        ip_type: Optional[str] = None,
+        ip_region: Optional[str] = None,
+    ) -> Optional[ProxyNode]:
+        """Select the best available node for routing traffic.
+
+        If *ip_type* or *ip_region* are provided, only nodes matching those
+        filters are considered.  Falls back to any available node if no
+        matches are found.
+        """
         # SQLite implementation for local testing
         if hasattr(self._settings, "USE_SQLITE") and self._settings.USE_SQLITE:
-            return await self._select_node_sqlite()
-        
+            return await self._select_node_sqlite(ip_type=ip_type, ip_region=ip_region)
+
         # This would handle the Supabase implementation
         return self._get_fallback_node()
 
-    async def _select_node_sqlite(self) -> Optional[ProxyNode]:
-        """Select a node using SQLite data."""
+    async def _select_node_sqlite(
+        self,
+        *,
+        ip_type: Optional[str] = None,
+        ip_region: Optional[str] = None,
+    ) -> Optional[ProxyNode]:
+        """Select a node using SQLite data with optional ip_type/ip_region filtering."""
         if self._db is None:
             logger.warning("No database configured for node selection")
             return self._get_fallback_node()
@@ -57,10 +74,28 @@ class RoutingService:
                 logger.warning("No online nodes found in database")
                 return None
 
+            # Apply ip_type/ip_region filters if specified
+            candidates = rows
+            if ip_type or ip_region:
+                filtered = candidates
+                if ip_type:
+                    filtered = [r for r in filtered if r.get("ip_type") == ip_type]
+                if ip_region:
+                    region_lower = ip_region.lower()
+                    filtered = [r for r in filtered if region_lower in (r.get("ip_region") or "").lower()]
+
+                if filtered:
+                    candidates = filtered
+                else:
+                    logger.warning(
+                        "No nodes match ip_type=%s ip_region=%s — falling back to all nodes",
+                        ip_type, ip_region,
+                    )
+
             # Weighted random selection based on health_score
             selected = random.choices(
-                rows,
-                weights=[r.get("health_score", 1.0) for r in rows],
+                candidates,
+                weights=[r.get("health_score", 1.0) for r in candidates],
                 k=1,
             )[0]
 
@@ -68,6 +103,8 @@ class RoutingService:
                 node_id=selected["id"],
                 endpoint_url=selected["endpoint_url"],
                 health_score=selected.get("health_score", 1.0),
+                ip_type=selected.get("ip_type", ""),
+                ip_region=selected.get("ip_region", ""),
             )
 
             # Update local cache
@@ -99,6 +136,10 @@ class RoutingService:
         if auth:
             return f"http://{auth}@{self._settings.PROXYJET_HOST}:{self._settings.PROXYJET_PORT}"
         return f"http://{self._settings.PROXYJET_HOST}:{self._settings.PROXYJET_PORT}"
+
+    def register_cached_node(self, node: ProxyNode) -> None:
+        """Add or update a node in the local cache (used by SQLite mode)."""
+        self._nodes_cache[node.node_id] = node
 
     async def report_outcome(
         self, node_id: str, success: bool, latency_ms: int, bytes_transferred: int
