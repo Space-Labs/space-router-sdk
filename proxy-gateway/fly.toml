@@ -18,12 +18,17 @@ primary_region = "iad"
 
   [[services.ports]]
     port = 8080
-    handlers = []
+    handlers = ["tls"]
 
   [services.concurrency]
     type = "connections"
     hard_limit = 500
     soft_limit = 400
+
+  [[services.tcp_checks]]
+    interval = 10000
+    timeout = 2000
+    grace_period = "5s"
 
 [[services]]
   internal_port = 8081
