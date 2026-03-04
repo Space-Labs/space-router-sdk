@@ -19,7 +19,7 @@ def _setup_app(settings: Settings) -> TestClient:
     app.state.http_client = http_client
     app.state.db = db
     app.state.auth_service = AuthService(http_client, settings)
-    app.state.routing_service = RoutingService(http_client, settings)
+    app.state.routing_service = RoutingService(http_client, settings, db=db)
 
     # Override cached settings so verify_internal_secret uses our test settings
     get_settings.cache_clear()
@@ -86,8 +86,8 @@ class TestAuthValidate:
 
 
 class TestRouteSelect:
-    def test_selects_local_node(self, settings):
-        """SQLite mode creates a local test node."""
+    def test_selects_proxyjet_fallback_when_no_nodes(self, settings):
+        """SQLite mode with no registered nodes falls back to ProxyJet."""
         client = _setup_app(settings)
         resp = client.get(
             "/internal/route/select",
@@ -95,8 +95,8 @@ class TestRouteSelect:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["node_id"] != ""
-        assert data["endpoint_url"] != ""
+        assert data["node_id"] == "proxyjet-fallback"
+        assert "proxy.proxyjet.io" in data["endpoint_url"]
 
     def test_no_nodes_no_proxyjet(self):
         """No proxyjet configured and non-SQLite mode -> 503."""

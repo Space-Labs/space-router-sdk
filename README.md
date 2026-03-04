@@ -58,11 +58,11 @@ export SR_USE_SQLITE=true
 export SR_SQLITE_DB_PATH=space_router.db
 export SR_INTERNAL_API_SECRET=local-dev-secret
 
-# Optional: Configure fallback proxy
-export SR_PROXYJET_HOST=proxy.proxyjet.io
-export SR_PROXYJET_PORT=8080
-export SR_PROXYJET_USERNAME=your-user
-export SR_PROXYJET_PASSWORD=your-pass
+# ProxyJet fallback (used when no residential nodes are available)
+export SR_PROXYJET_HOST=proxy-jet.io
+export SR_PROXYJET_PORT=1010
+export SR_PROXYJET_USERNAME=your-proxyjet-username
+export SR_PROXYJET_PASSWORD=your-proxyjet-password
 
 # Start the server
 python -m app.main
@@ -138,11 +138,11 @@ export SR_SUPABASE_URL=https://your-project.supabase.co
 export SR_SUPABASE_SERVICE_KEY=your-service-key
 export SR_INTERNAL_API_SECRET=shared-secret
 
-# Proxyjet.io fallback (default proxy provider)
-export SR_PROXYJET_HOST=proxy.proxyjet.io
-export SR_PROXYJET_PORT=8080
-export SR_PROXYJET_USERNAME=your-user
-export SR_PROXYJET_PASSWORD=your-pass
+# ProxyJet fallback (used when no residential nodes are available)
+export SR_PROXYJET_HOST=proxy-jet.io
+export SR_PROXYJET_PORT=1010
+export SR_PROXYJET_USERNAME=your-proxyjet-username
+export SR_PROXYJET_PASSWORD=your-proxyjet-password
 
 # Start the server
 python -m app.main
@@ -183,20 +183,20 @@ fly secrets set \
   SR_SUPABASE_URL=https://your-project.supabase.co \
   SR_SUPABASE_SERVICE_KEY=your-service-key \
   SR_INTERNAL_API_SECRET=your-strong-secret \
-  SR_PROXYJET_HOST=proxy.proxyjet.io \
-  SR_PROXYJET_PORT=8080 \
-  SR_PROXYJET_USERNAME=your-user \
-  SR_PROXYJET_PASSWORD=your-pass
+  SR_PROXYJET_HOST=proxy-jet.io \
+  SR_PROXYJET_PORT=1010 \
+  SR_PROXYJET_USERNAME=your-proxyjet-username \
+  SR_PROXYJET_PASSWORD=your-proxyjet-password
 
 # OR for SQLite deployment
 # fly secrets set \
 #   SR_USE_SQLITE=true \
 #   SR_SQLITE_DB_PATH=/data/space_router.db \
 #   SR_INTERNAL_API_SECRET=your-strong-secret \
-#   SR_PROXYJET_HOST=proxy.proxyjet.io \
-#   SR_PROXYJET_PORT=8080 \
-#   SR_PROXYJET_USERNAME=your-user \
-#   SR_PROXYJET_PASSWORD=your-pass
+#   SR_PROXYJET_HOST=proxy-jet.io \
+#   SR_PROXYJET_PORT=1010 \
+#   SR_PROXYJET_USERNAME=your-proxyjet-username \
+#   SR_PROXYJET_PASSWORD=your-proxyjet-password
 
 fly deploy
 ```
@@ -309,10 +309,10 @@ All settings are via environment variables with the `SR_` prefix.
 | `SR_INTERNAL_API_SECRET` | — | Shared secret for internal endpoints |
 | `SR_SUPABASE_URL` | — | Supabase project URL |
 | `SR_SUPABASE_SERVICE_KEY` | — | Supabase service role key |
-| `SR_PROXYJET_HOST` | — | Proxyjet.io proxy hostname |
-| `SR_PROXYJET_PORT` | 8080 | Proxyjet.io proxy port |
-| `SR_PROXYJET_USERNAME` | — | Proxyjet.io auth username |
-| `SR_PROXYJET_PASSWORD` | — | Proxyjet.io auth password |
+| `SR_PROXYJET_HOST` | — | ProxyJet hostname (e.g. `proxy-jet.io`). **Required** for fallback routing. |
+| `SR_PROXYJET_PORT` | 1010 | ProxyJet HTTP proxy port |
+| `SR_PROXYJET_USERNAME` | — | ProxyJet auth username |
+| `SR_PROXYJET_PASSWORD` | — | ProxyJet auth password |
 | `SR_USE_SQLITE` | false | Use SQLite instead of Supabase |
 | `SR_SQLITE_DB_PATH` | space_router.db | Path to SQLite database file |
 
@@ -329,6 +329,17 @@ All settings are via environment variables with the `SR_` prefix.
 | `SR_BUFFER_SIZE` | 65536 | TCP read buffer size |
 | `SR_REQUEST_TIMEOUT` | 30.0 | Timeout (seconds) for connecting to target servers |
 | `SR_RELAY_TIMEOUT` | 300.0 | Max duration (seconds) for a CONNECT tunnel relay |
+
+## ProxyJet Fallback
+
+When no residential home nodes are online, the Coordination API automatically falls back to [ProxyJet](https://proxy-jet.io) rotating-residential proxies. This ensures requests never fail with a 503 as long as ProxyJet credentials are configured.
+
+**Routing priority:**
+1. Online residential home nodes (weighted by health score)
+2. ProxyJet rotating-residential fallback
+3. 503 Service Unavailable (only if ProxyJet is not configured)
+
+The four `SR_PROXYJET_*` environment variables are required on the Coordination API for fallback to work. They are already set as Fly.io secrets on `spacerouter-coordination-api`. For local development, copy `.env.example` to `.env` inside `coordination-api/` and fill in your credentials.
 
 ## API Reference
 
