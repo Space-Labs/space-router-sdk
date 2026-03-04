@@ -60,7 +60,33 @@ class RoutingService:
         ip_type: Optional[str] = None,
         ip_region: Optional[str] = None,
     ) -> Optional[ProxyNode]:
-        """Select a node using SQLite data with optional ip_type/ip_region filtering."""
+        """Select a node using SQLite data with optional ip_type/ip_region filtering.
+
+        Checks the in-memory cache first (populated by register_cached_node or
+        previous DB queries).  Falls through to the database when the cache is
+        empty.
+        """
+        # --- 1. Try the in-memory cache ---
+        if self._nodes_cache:
+            candidates = list(self._nodes_cache.values())
+            if ip_type or ip_region:
+                filtered = candidates
+                if ip_type:
+                    filtered = [n for n in filtered if n.ip_type == ip_type]
+                if ip_region:
+                    region_lower = ip_region.lower()
+                    filtered = [n for n in filtered if region_lower in (n.ip_region or "").lower()]
+                if filtered:
+                    candidates = filtered
+                else:
+                    logger.warning(
+                        "No nodes match ip_type=%s ip_region=%s — falling back to all nodes",
+                        ip_type, ip_region,
+                    )
+            selected = random.choice(candidates)
+            return selected
+
+        # --- 2. Query the database ---
         if self._db is None:
             logger.warning("No database configured for node selection")
             return self._get_fallback_node()
