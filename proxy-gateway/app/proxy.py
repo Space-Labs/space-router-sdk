@@ -46,7 +46,13 @@ def parse_headers(raw: bytes) -> dict[str, str]:
 async def _read_request_head(reader: asyncio.StreamReader) -> tuple[bytes, str, str, str, dict[str, str]] | None:
     try:
         request_line = await asyncio.wait_for(reader.readuntil(b"\r\n"), timeout=30.0)
-    except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionResetError):
+    except asyncio.TimeoutError:
+        logger.warning("Timeout reading request line (30s)")
+        return None
+    except asyncio.IncompleteReadError:
+        return None
+    except ConnectionResetError:
+        logger.debug("ConnectionReset reading request line (likely health check)")
         return None
 
     parts = request_line.decode("latin-1").strip().split(" ", 2)
@@ -143,7 +149,6 @@ async def _connect_to_node(endpoint_url: str, timeout: float) -> NodeConnection 
     host = parsed.hostname
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     proxy_auth = _extract_proxy_auth(parsed)
-
     try:
         if parsed.scheme == "https":
             import ssl
@@ -437,20 +442,21 @@ class ProxyServer:
                 return
 
             raw_head, method, target, version, headers = result
+            logger.debug("[%s] %s %s %s", request_id[:8], method, target, version)
 
             # --- Authentication ---
             # Get Proxy-Authorization header - use get() for dictionary access
             auth_header = headers.get("Proxy-Authorization", "")
-            
+
             try:
                 api_key = extract_api_key(auth_header)
             except Exception as e:
-                logger.error(f"Error extracting API key: {e}")
+                logger.error("[%s] Error extracting API key: %s", request_id[:8], e)
                 metrics["auth_failures"] += 1
                 writer.write(proxy_auth_required(request_id))
                 await writer.drain()
                 return
-            
+
             if not api_key:
                 metrics["auth_failures"] += 1
                 writer.write(proxy_auth_required(request_id))
@@ -489,6 +495,8 @@ class ProxyServer:
                 writer.write(no_nodes_available(request_id))
                 await writer.drain()
                 return
+
+            logger.debug("[%s] Node selected: %s -> %s", request_id[:8], node.node_id, node.endpoint_url)
 
             # --- Route Request ---
             if method.upper() == "CONNECT":

@@ -39,7 +39,12 @@ def _do_upnp_mapping(
     u = miniupnpc.UPnP()
     u.discoverdelay = 2000  # ms
 
-    devices = u.discover()
+    try:
+        devices = u.discover()
+    except Exception as exc:
+        logger.warning("UPnP discovery failed: %s", exc)
+        return None
+
     if devices == 0:
         logger.info("No UPnP devices found on the network")
         return None
