@@ -2,7 +2,7 @@
 
 - [X] Fallback Proxy (ProxyJet)
 - [ ] BETTER Fallback Proxy (Data Bright)
-- [ ] Rate-limited API Keys
+- [X] Rate-limited API Keys
 - [ ] OpenClaw skill
 - [ ] Spacecoin staking
 - [ ] Spacecoin payment for transactions
