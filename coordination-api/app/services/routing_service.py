@@ -26,7 +26,7 @@ class RoutingService:
 
     Selection priority:
     1. Online residential nodes from the DB, weighted by health_score.
-    2. ProxyJet rotating-residential fallback (if configured).
+    2. ProxyJet fallback (if configured).
     3. None → caller returns 503 to the client.
     """
 
@@ -95,9 +95,8 @@ class RoutingService:
 
         auth = None
         if self._settings.PROXYJET_USERNAME and self._settings.PROXYJET_PASSWORD:
-            # ProxyJet rotating-residential format: USERNAME-resi-US:PASSWORD
-            username = f"{self._settings.PROXYJET_USERNAME}-resi-US"
-            auth = f"{username}:{self._settings.PROXYJET_PASSWORD}"
+            # Username is used as-is from config (e.g. includes session/region params)
+            auth = f"{self._settings.PROXYJET_USERNAME}:{self._settings.PROXYJET_PASSWORD}"
 
         endpoint_url = self._proxyjet_endpoint_url(auth)
         return ProxyNode(

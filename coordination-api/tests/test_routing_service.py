@@ -12,33 +12,33 @@ class TestProxyjetEndpointUrl:
     def test_builds_correct_url(self):
         settings = Settings(
             USE_SQLITE=False,
-            PROXYJET_HOST="proxy.proxyjet.io",
+            PROXYJET_HOST="ca.proxy-jet.io",
             PROXYJET_PORT=1010,
             PROXYJET_USERNAME="user",
             PROXYJET_PASSWORD="pass",
         )
         http_client = httpx.AsyncClient()
         service = RoutingService(http_client, settings)
-        url = service._proxyjet_endpoint_url("user-resi-US:pass")
-        assert url == "http://user-resi-US:pass@proxy.proxyjet.io:1010"
+        url = service._proxyjet_endpoint_url("user:pass")
+        assert url == "http://user:pass@ca.proxy-jet.io:1010"
 
     def test_url_without_auth(self):
         settings = Settings(
             USE_SQLITE=False,
-            PROXYJET_HOST="proxy.proxyjet.io",
+            PROXYJET_HOST="ca.proxy-jet.io",
             PROXYJET_PORT=1010,
         )
         http_client = httpx.AsyncClient()
         service = RoutingService(http_client, settings)
         url = service._proxyjet_endpoint_url(None)
-        assert url == "http://proxy.proxyjet.io:1010"
+        assert url == "http://ca.proxy-jet.io:1010"
 
 
 class TestGetFallbackNode:
-    def test_returns_proxyjet_node_with_resi_username(self):
+    def test_returns_proxyjet_node_with_credentials(self):
         settings = Settings(
             USE_SQLITE=False,
-            PROXYJET_HOST="proxy-jet.io",
+            PROXYJET_HOST="ca.proxy-jet.io",
             PROXYJET_PORT=1010,
             PROXYJET_USERNAME="user123",
             PROXYJET_PASSWORD="pass456",
@@ -49,15 +49,15 @@ class TestGetFallbackNode:
 
         assert node is not None
         assert node.node_id == "proxyjet-fallback"
-        assert node.endpoint_url == "http://user123-resi-US:pass456@proxy-jet.io:1010"
+        assert node.endpoint_url == "http://user123:pass456@ca.proxy-jet.io:1010"
 
-    def test_username_gets_resi_us_suffix(self):
-        """ProxyJet username must be formatted as USERNAME-resi-US for rotating residential."""
+    def test_username_used_as_is(self):
+        """ProxyJet username is used as-is from config (includes session/region params)."""
         settings = Settings(
             USE_SQLITE=False,
-            PROXYJET_HOST="proxy-jet.io",
+            PROXYJET_HOST="ca.proxy-jet.io",
             PROXYJET_PORT=1010,
-            PROXYJET_USERNAME="260302CJd90",
+            PROXYJET_USERNAME="260302CJd90-static_region-US_California_Sanfrancisco-ip-725842936",
             PROXYJET_PASSWORD="NwUqzgu38X",
         )
         http_client = httpx.AsyncClient()
@@ -65,9 +65,8 @@ class TestGetFallbackNode:
         node = service._get_fallback_node()
 
         assert node is not None
-        # Verify the -resi-US suffix is appended to the raw username
-        assert "260302CJd90-resi-US:" in node.endpoint_url
-        assert node.endpoint_url == "http://260302CJd90-resi-US:NwUqzgu38X@proxy-jet.io:1010"
+        # Username is used exactly as configured, no suffix appended
+        assert node.endpoint_url == "http://260302CJd90-static_region-US_California_Sanfrancisco-ip-725842936:NwUqzgu38X@ca.proxy-jet.io:1010"
 
     def test_returns_none_when_no_host(self):
         settings = Settings(
@@ -78,11 +77,11 @@ class TestGetFallbackNode:
         service = RoutingService(http_client, settings)
         assert service._get_fallback_node() is None
 
-    def test_returns_none_when_host_only_no_creds(self):
+    def test_returns_node_without_auth_when_no_creds(self):
         """Host configured but no username/password → URL has no auth."""
         settings = Settings(
             USE_SQLITE=False,
-            PROXYJET_HOST="proxy-jet.io",
+            PROXYJET_HOST="ca.proxy-jet.io",
             PROXYJET_PORT=1010,
             PROXYJET_USERNAME="",
             PROXYJET_PASSWORD="",
@@ -92,7 +91,7 @@ class TestGetFallbackNode:
         node = service._get_fallback_node()
 
         assert node is not None
-        assert node.endpoint_url == "http://proxy-jet.io:1010"
+        assert node.endpoint_url == "http://ca.proxy-jet.io:1010"
         assert "@" not in node.endpoint_url
 
     def test_health_score_is_one(self):
