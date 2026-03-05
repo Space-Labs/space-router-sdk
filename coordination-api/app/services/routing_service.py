@@ -24,7 +24,13 @@ class ProxyNode:
 
 
 class RoutingService:
-    """Selects optimal nodes for routing traffic."""
+    """Selects optimal nodes for routing traffic.
+
+    Selection priority:
+    1. Online residential nodes from the DB, weighted by health_score.
+    2. ProxyJet fallback (if configured).
+    3. None → caller returns 503 to the client.
+    """
 
     def __init__(self, http_client: httpx.AsyncClient, settings: Settings, db=None) -> None:
         self._client = http_client
@@ -98,7 +104,7 @@ class RoutingService:
             )
             if not rows:
                 logger.warning("No online nodes found in database")
-                return None
+                return self._get_fallback_node()
 
             # Apply ip_type/ip_region filters if specified
             candidates = rows
@@ -141,13 +147,13 @@ class RoutingService:
             return None
 
     def _get_fallback_node(self) -> Optional[ProxyNode]:
-        """Get a fallback proxy provider when no residential nodes are available."""
-        # Check if Proxyjet is configured
+        """Get a ProxyJet fallback node when no residential nodes are available."""
         if not self._settings.PROXYJET_HOST:
             return None
 
         auth = None
         if self._settings.PROXYJET_USERNAME and self._settings.PROXYJET_PASSWORD:
+            # Username is used as-is from config (e.g. includes session/region params)
             auth = f"{self._settings.PROXYJET_USERNAME}:{self._settings.PROXYJET_PASSWORD}"
 
         endpoint_url = self._proxyjet_endpoint_url(auth)
@@ -158,7 +164,7 @@ class RoutingService:
         )
 
     def _proxyjet_endpoint_url(self, auth: Optional[str]) -> str:
-        """Build the Proxyjet endpoint URL with auth if provided."""
+        """Build the ProxyJet endpoint URL with auth if provided."""
         if auth:
             return f"http://{auth}@{self._settings.PROXYJET_HOST}:{self._settings.PROXYJET_PORT}"
         return f"http://{self._settings.PROXYJET_HOST}:{self._settings.PROXYJET_PORT}"
@@ -171,13 +177,9 @@ class RoutingService:
         self, node_id: str, success: bool, latency_ms: int, bytes_transferred: int
     ) -> None:
         """Record the outcome of a routing decision to track node performance."""
-        # SQLite implementation for local testing
-        if hasattr(self._settings, "USE_SQLITE") and self._settings.USE_SQLITE:
+        if self._settings.USE_SQLITE:
             await self._report_outcome_sqlite(node_id, success, latency_ms, bytes_transferred)
             return
-
-        # This would handle the Supabase implementation, but we're only using SQLite for now
-        return
 
     async def _report_outcome_sqlite(
         self, node_id: str, success: bool, latency_ms: int, bytes_transferred: int

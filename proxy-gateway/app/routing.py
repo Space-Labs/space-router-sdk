@@ -47,6 +47,7 @@ class NodeRouter:
             if ip_region:
                 params["ip_region"] = ip_region
 
+
             response = await self._client.get(
                 f"{self._settings.COORDINATION_API_URL}/internal/route/select",
                 headers=headers,

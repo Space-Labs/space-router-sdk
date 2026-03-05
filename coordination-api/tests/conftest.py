@@ -15,7 +15,7 @@ def settings(tmp_path):
         USE_SQLITE=True,
         SQLITE_DB_PATH=db_path,
         PROXYJET_HOST="proxy.proxyjet.io",
-        PROXYJET_PORT=8080,
+        PROXYJET_PORT=1010,
         PROXYJET_USERNAME="user123",
         PROXYJET_PASSWORD="pass456",
     )

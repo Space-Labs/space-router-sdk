@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Proxyjet fallback proxy (used when no residential nodes available)
     PROXYJET_HOST: str = ""
-    PROXYJET_PORT: int = 8080
+    PROXYJET_PORT: int = 1010
     PROXYJET_USERNAME: str = ""
     PROXYJET_PASSWORD: str = ""
 

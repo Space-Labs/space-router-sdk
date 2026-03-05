@@ -35,24 +35,19 @@ class AuthService:
             del VALIDATION_CACHE[key_hash]
             del CACHE_EXPIRATIONS[key_hash]
 
-        # SQLite implementation for local testing
-        if hasattr(self._settings, "USE_SQLITE") and self._settings.USE_SQLITE:
-            result = await self._validate_with_sqlite(key_hash)
-            if result:
-                # Cache the result
-                VALIDATION_CACHE[key_hash] = result
-                CACHE_EXPIRATIONS[key_hash] = now + self._cache_ttl
-            return result
-
-        # This would handle the Supabase implementation, but we're only using SQLite for now
-        return None
-
-    async def _validate_with_sqlite(self, key_hash: str) -> Optional[Dict]:
-        """Validate a key hash using SQLite."""
         if self._db is None:
-            logger.warning("No database configured for auth validation")
+            logger.error("No database client configured for auth validation")
             return None
 
+        result = await self._validate_with_db(key_hash)
+        if result:
+            # Cache the result
+            VALIDATION_CACHE[key_hash] = result
+            CACHE_EXPIRATIONS[key_hash] = now + self._cache_ttl
+        return result
+
+    async def _validate_with_db(self, key_hash: str) -> Optional[Dict]:
+        """Validate a key hash by querying the api_keys table."""
         try:
             row = await self._db.select(
                 "api_keys",
@@ -65,8 +60,8 @@ class AuthService:
 
             return {
                 "api_key_id": row["id"],
-                "rate_limit_rpm": row["rate_limit_rpm"],
+                "rate_limit_rpm": row.get("rate_limit_rpm", 60),
             }
         except Exception as e:
-            logger.error("SQLite auth validation error: %s", e)
+            logger.error("Failed to validate key hash: %s", e)
             return None
