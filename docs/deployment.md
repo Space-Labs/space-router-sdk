@@ -32,6 +32,8 @@ fly deploy
 
 ## Proxy Gateway (Fly.io)
 
+The Proxy Gateway exposes three ports: HTTP proxy (8080), SOCKS5 proxy (1080), and management API (8081). All three are configured in `fly.toml` with TLS handlers for Fly.io shared IPv4 routing.
+
 ```bash
 cd proxy-gateway
 
@@ -40,6 +42,15 @@ fly secrets set \
   SR_COORDINATION_API_SECRET=your-strong-secret
 
 fly deploy
+```
+
+Clients connect to the SOCKS5 port via TLS on Fly.io:
+
+```bash
+# SOCKS5 via Fly.io (TLS-terminated at edge)
+curl --socks5 spacerouter-proxy-gateway.fly.dev:1080 \
+     --proxy-user sr_live_YOUR_API_KEY: \
+     https://httpbin.org/ip
 ```
 
 ## Home Node Daemon (macOS)

@@ -5,11 +5,11 @@ Space Router is a residential IP proxy service with three components:
 | Component | Default Ports | Description |
 |---|---|---|
 | **Coordination API** | `8000` | Central control plane — API key management, node registry, auth validation, route selection |
-| **Proxy Gateway** | `8080` (proxy), `8081` (management) | Forward proxy server that authenticates requests and routes them through home nodes |
+| **Proxy Gateway** | `8080` (HTTP proxy), `1080` (SOCKS5), `8081` (management) | Forward proxy server (HTTP and SOCKS5) that authenticates requests and routes them through home nodes |
 | **Home Node** | `9090` | TLS-enabled TCP proxy running on residential IPs |
 
 ```
-Agent ──► Proxy Gateway (:8080)
+Agent ──► Proxy Gateway (:8080 HTTP, :1080 SOCKS5)
               │
               ├──► Coordination API (:8000)  [auth + route selection]
               │
@@ -318,11 +318,12 @@ X-Internal-API-Key: <internal_secret>
 
 ## Proxy Gateway
 
-The gateway runs two servers:
-- **Proxy server** (port `8080`) — HTTP/HTTPS forward proxy
+The gateway runs three servers:
+- **HTTP proxy** (port `8080`) — HTTP/HTTPS forward proxy
+- **SOCKS5 proxy** (port `1080`) — SOCKS5 proxy (RFC 1928 + RFC 1929)
 - **Management server** (port `8081`) — Health and metrics endpoints
 
-### Using the Proxy
+### Using the HTTP Proxy
 
 Agents connect using standard HTTP proxy authentication:
 
@@ -335,6 +336,34 @@ curl -x "http://<api_key>:@localhost:8080" --proxy-insecure https://httpbin.org/
 ```
 
 The API key is sent as the username in `Proxy-Authorization: Basic <base64(api_key:)>`.
+
+### Using the SOCKS5 Proxy
+
+Agents can also connect via SOCKS5. The API key is passed as the SOCKS5 username; the password is ignored.
+
+```bash
+# curl with SOCKS5
+curl --socks5 localhost:1080 --proxy-user <api_key>: http://httpbin.org/ip
+
+# HTTPS via SOCKS5
+curl --socks5 localhost:1080 --proxy-user <api_key>: https://httpbin.org/ip
+```
+
+```python
+# Python with httpx
+import httpx
+
+proxy_url = "socks5://<api_key>:@localhost:1080"
+
+async with httpx.AsyncClient(proxy=proxy_url) as client:
+    response = await client.get("https://httpbin.org/ip")
+```
+
+**SOCKS5 details:**
+- Supports `CONNECT` command only (no `BIND` or `UDP ASSOCIATE`)
+- Supports IPv4, IPv6, and domain name address types
+- Authentication method: username/password (RFC 1929)
+- Both HTTP and SOCKS5 use the same residential nodes — the gateway translates SOCKS5 to HTTP CONNECT internally
 
 **Custom response headers** added by the gateway:
 
@@ -374,9 +403,15 @@ Returns `{ "status": "not_ready", "reason": "..." }` if the Coordination API is 
   "auth_failures": 1,
   "rate_limited": 0,
   "upstream_errors": 1,
-  "no_nodes": 0
+  "no_nodes": 0,
+  "socks5_total_requests": 10,
+  "socks5_active_connections": 1,
+  "socks5_auth_failures": 0,
+  "socks5_successful_requests": 9
 }
 ```
+
+HTTP proxy and SOCKS5 metrics are tracked independently. The `total_requests` / `active_connections` / etc. counters cover the HTTP proxy; the `socks5_*` counters cover the SOCKS5 proxy.
 
 ---
 
@@ -411,7 +446,8 @@ All settings use the `SR_` environment variable prefix.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `SR_PROXY_PORT` | int | `8080` | Forward proxy port |
+| `SR_PROXY_PORT` | int | `8080` | HTTP forward proxy port |
+| `SR_SOCKS5_PORT` | int | `1080` | SOCKS5 proxy port |
 | `SR_MANAGEMENT_PORT` | int | `8081` | Management API port |
 | `SR_COORDINATION_API_URL` | string | **required** | Coordination API base URL |
 | `SR_COORDINATION_API_SECRET` | string | **required** | Secret for internal API auth |
