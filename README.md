@@ -2,20 +2,21 @@
 
 Residential IP as a Service for AI Agents.
 
-Space Router provides a single proxy URL that routes agent HTTP traffic through residential IP addresses. No SDK required — configure any HTTP client with the proxy URL and go.
+Space Router provides a proxy endpoint that routes agent traffic through residential IP addresses. Supports both HTTP proxy and SOCKS5 protocols — configure any HTTP client or SOCKS5-capable tool with the proxy URL and go.
 
 ## Architecture
 
 | Component | Language | Description |
 |---|---|---|
-| **Proxy Gateway** | Python / asyncio | Agent-facing HTTP forward proxy. Authenticates requests, selects a residential node, and tunnels traffic through it. |
+| **Proxy Gateway** | Python / asyncio | Agent-facing proxy (HTTP and SOCKS5). Authenticates requests, selects a residential node, and tunnels traffic through it. |
 | **Coordination API** | Python / FastAPI | Central brain. Node registry, IP classification via ipinfo.io, routing decisions, health monitoring, API key management. |
 | **Home Node Daemon** | Python / asyncio | Runs on residential machines (macOS). Accepts proxied requests and forwards them from its residential IP. Receives IP classification from the Coordination API at registration. |
 
 ```
                      ┌──────────────────┐
    AI Agent ────────►│  Proxy Gateway   │
-  (HTTP proxy)       │  :8080 (proxy)   │
+  (HTTP or SOCKS5)   │  :8080 (HTTP)    │
+                     │  :1080 (SOCKS5)  │
                      │  :8081 (mgmt)    │
                      └────────┬─────────┘
                               │
@@ -84,7 +85,7 @@ pip install -r requirements.txt
 export SR_COORDINATION_API_URL=http://localhost:8000
 export SR_COORDINATION_API_SECRET=local-dev-secret
 
-# Start the server (proxy on :8080, management API on :8081)
+# Start the server (HTTP proxy :8080, SOCKS5 :1080, management :8081)
 python -m app.main
 ```
 
@@ -124,11 +125,13 @@ Save the `api_key` from the response — it's only shown once.
 ### 5. Test End-to-End
 
 ```bash
-# Send a request through the full pipeline:
-# Agent → Proxy Gateway → Home Node → target
+# HTTP proxy — Agent → Proxy Gateway → Home Node → target
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 http://httpbin.org/ip
 
-# Request a specific IP type and region:
+# SOCKS5 proxy — same pipeline, SOCKS5 protocol
+curl --socks5 localhost:1080 --proxy-user sr_live_YOUR_API_KEY: http://httpbin.org/ip
+
+# Request a specific IP type and region (HTTP proxy):
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 \
   -H "X-SpaceRouter-IP-Type: residential" \
   -H "X-SpaceRouter-Region: Seoul, KR" \
@@ -136,6 +139,8 @@ curl -x http://sr_live_YOUR_API_KEY@localhost:8080 \
 ```
 
 ## Usage in Code
+
+### HTTP Proxy
 
 Agents configure their HTTP client with the Space Router proxy URL:
 
@@ -154,6 +159,28 @@ Or with curl:
 ```bash
 curl -x http://sr_live_YOUR_API_KEY@localhost:8080 https://example.com
 ```
+
+### SOCKS5 Proxy
+
+For tools and libraries that support SOCKS5 (browsers, scrapers, PySocks):
+
+```python
+import httpx
+
+proxy_url = "socks5://sr_live_YOUR_API_KEY:@localhost:1080"
+
+async with httpx.AsyncClient(proxy=proxy_url) as client:
+    response = await client.get("https://target-website.com/data")
+    print(response.status_code)
+```
+
+Or with curl:
+
+```bash
+curl --socks5 localhost:1080 --proxy-user sr_live_YOUR_API_KEY: https://example.com
+```
+
+The API key is passed as the SOCKS5 username; the password is ignored. Both protocols produce identical results — the gateway translates SOCKS5 to HTTP CONNECT internally, so the same residential nodes are used regardless of protocol.
 
 ### IP-Based Routing
 
@@ -187,7 +214,7 @@ The routing headers are stripped before the request is forwarded to the Home Nod
 # Coordination API (47 tests)
 cd coordination-api && pytest tests/ -v
 
-# Proxy Gateway (36 tests)
+# Proxy Gateway (50 tests)
 cd proxy-gateway && pytest tests/ -v
 
 # Home Node Daemon (36 tests)

@@ -35,6 +35,12 @@ Expected output on success:
          -> Target (httpbin.org)
 ```
 
+You can also manually test SOCKS5 while the E2E services are running:
+
+```bash
+curl --socks5 localhost:1080 --proxy-user sr_live_YOUR_API_KEY: http://httpbin.org/ip
+```
+
 Prerequisites: Python 3.12+, pip, curl, nc (netcat).
 
 ## Staging E2E Demo (Fly.io + Residential IP)
@@ -103,3 +109,4 @@ The script automatically cleans up on exit (including Ctrl+C):
 | Proxy scheme | `http://` | `https://` + `--proxy-insecure` |
 | Network path | All loopback | Internet: Client → Fly.io → Router → Home Node → Target |
 | Exit IP | `127.0.0.1` | Residential ISP address |
+| SOCKS5 | Available on `:1080` (manual test) | Available on `:1080` via TLS (manual test) |
