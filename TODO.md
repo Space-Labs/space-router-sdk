@@ -1,7 +1,7 @@
 ## TODO
 
 - [X] Fallback Proxy (ProxyJet)
-- [ ] BETTER Fallback Proxy (Data Bright)
+- [X] BETTER Fallback Proxy (Data Bright)
 - [X] Rate-limited API Keys
 - [ ] OpenClaw skill
 - [ ] Spacecoin staking
