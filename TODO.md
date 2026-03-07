@@ -5,4 +5,6 @@
 - [X] Rate-limited API Keys
 - [X] OpenClaw skill
 - [ ] Spacecoin staking
+- [ ] Home Node Registration with wallet address
+- [ ] Identify IP type accurately (IPinfo Core)
 - [ ] Spacecoin payment for transactions
