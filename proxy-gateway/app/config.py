@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     # TLS
     NODE_TLS_VERIFY: bool = True  # Set False for self-signed Home Node certs
+    # Path to Bright Data CA certificate (PEM) for verifying HTTPS through BD proxy.
+    # When set, the proxy gateway trusts this CA for upstream Bright Data connections.
+    BRIGHTDATA_CA_CERT: str = ""
 
     # Logging
     LOG_LEVEL: str = "INFO"

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     BRIGHTDATA_PASSWORD: str = ""
     BRIGHTDATA_HOST: str = "brd.superproxy.io"
     BRIGHTDATA_PORT: int = 33335
+    # Path to Bright Data CA certificate for TLS verification (PEM format).
+    # When set, HTTPS requests through the proxy verify against this CA
+    # instead of falling back to verify=False.
+    BRIGHTDATA_CA_CERT: str = ""
 
     class Config:
         env_prefix = "SR_"

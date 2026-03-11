@@ -151,7 +151,10 @@ def _extract_proxy_auth(parsed_url) -> str | None:
 
 
 async def _connect_to_node(
-    endpoint_url: str, timeout: float, tls_verify: bool = True
+    endpoint_url: str,
+    timeout: float,
+    tls_verify: bool = True,
+    ca_cert: str = "",
 ) -> NodeConnection | None:
     parsed = urlparse(endpoint_url)
     host = parsed.hostname
@@ -161,7 +164,14 @@ async def _connect_to_node(
     try:
         if parsed.scheme == "https":
             import ssl
-            ctx = ssl.create_default_context()
+            if ca_cert:
+                ctx = ssl.create_default_context(cafile=ca_cert)
+                # Relax Python 3.14's strict X.509 flag so root CAs with
+                # missing Authority Key Identifier are still accepted.
+                if hasattr(ssl, "VERIFY_X509_STRICT"):
+                    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            else:
+                ctx = ssl.create_default_context()
             if not tls_verify:
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
@@ -189,8 +199,11 @@ async def handle_connect(
     request_id: str,
     settings: Settings,
 ) -> tuple[bool, int, int, str | None]:
+    # Use Bright Data CA cert when routing through the fallback proxy
+    ca_cert = settings.BRIGHTDATA_CA_CERT if node.node_id == "brightdata-fallback" else ""
     conn = await _connect_to_node(
-        node.endpoint_url, settings.NODE_REQUEST_TIMEOUT, settings.NODE_TLS_VERIFY
+        node.endpoint_url, settings.NODE_REQUEST_TIMEOUT, settings.NODE_TLS_VERIFY,
+        ca_cert=ca_cert,
     )
     if conn is None:
         return False, 0, 0, "connection_refused"
@@ -264,8 +277,10 @@ async def handle_http_forward(
     request_id: str,
     settings: Settings,
 ) -> tuple[bool, int, int, int | None, str | None]:
+    ca_cert = settings.BRIGHTDATA_CA_CERT if node.node_id == "brightdata-fallback" else ""
     conn = await _connect_to_node(
-        node.endpoint_url, settings.NODE_REQUEST_TIMEOUT, settings.NODE_TLS_VERIFY
+        node.endpoint_url, settings.NODE_REQUEST_TIMEOUT, settings.NODE_TLS_VERIFY,
+        ca_cert=ca_cert,
     )
     if conn is None:
         return False, 0, 0, None, "connection_refused"

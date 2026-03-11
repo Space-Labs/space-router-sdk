@@ -329,7 +329,29 @@ class TestFallbackPrecedence:
 _BD_ACCOUNT = os.environ.get("SR_BRIGHTDATA_ACCOUNT_ID", "")
 _BD_ZONE = os.environ.get("SR_BRIGHTDATA_ZONE", "")
 _BD_PASS = os.environ.get("SR_BRIGHTDATA_PASSWORD", "")
+_BD_CA_CERT = os.environ.get("SR_BRIGHTDATA_CA_CERT", "")
 _has_bd_creds = bool(_BD_ACCOUNT and _BD_ZONE and _BD_PASS)
+
+
+def _bd_ssl_verify():
+    """Return the verify argument for httpx: SSLContext with BD CA, or False.
+
+    Python 3.14 enables strict X.509 checks by default, which rejects the
+    Bright Data root CA (missing Authority Key Identifier extension — valid
+    per RFC 5280 for self-signed roots).  We create a context with strict
+    mode relaxed so the cert is accepted.
+    """
+    import ssl
+
+    if not (_BD_CA_CERT and os.path.isfile(_BD_CA_CERT)):
+        return False
+
+    ctx = ssl.create_default_context(cafile=_BD_CA_CERT)
+    # Relax Python 3.14's strict X.509 flag so the root CA's missing
+    # Authority Key Identifier extension does not cause a rejection.
+    if hasattr(ssl, "VERIFY_X509_STRICT"):
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return ctx
 
 
 @pytest.mark.skipif(not _has_bd_creds, reason="Bright Data credentials not set")
@@ -338,6 +360,10 @@ class TestBrightDataLive:
 
     Skipped unless SR_BRIGHTDATA_ACCOUNT_ID, SR_BRIGHTDATA_ZONE, and
     SR_BRIGHTDATA_PASSWORD are set in the environment.
+
+    Set SR_BRIGHTDATA_CA_CERT to the path of the Bright Data CA certificate
+    (PEM) to enable proper TLS verification.  Without it the tests fall back
+    to verify=False.
     """
 
     @pytest.mark.asyncio
@@ -355,9 +381,10 @@ class TestBrightDataLive:
         assert node is not None
         assert node.node_id == "brightdata-fallback"
 
-        # Make a request through the Bright Data proxy
-        # verify=False because Bright Data's proxy uses a self-signed certificate
-        async with httpx.AsyncClient(proxy=node.endpoint_url, verify=False, timeout=30.0) as client:
+        # Use the Bright Data CA cert when available; fall back to verify=False
+        async with httpx.AsyncClient(
+            proxy=node.endpoint_url, verify=_bd_ssl_verify(), timeout=30.0
+        ) as client:
             resp = await client.get("https://lumtest.com/myip.json")
 
         assert resp.status_code == 200
@@ -380,7 +407,9 @@ class TestBrightDataLive:
         assert node is not None
         assert "-country-us" in node.endpoint_url
 
-        async with httpx.AsyncClient(proxy=node.endpoint_url, verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(
+            proxy=node.endpoint_url, verify=_bd_ssl_verify(), timeout=30.0
+        ) as client:
             resp = await client.get("https://lumtest.com/myip.json")
 
         assert resp.status_code == 200
