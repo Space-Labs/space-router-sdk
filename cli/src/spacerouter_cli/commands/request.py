@@ -78,6 +78,7 @@ def _do_request(
         gateway_url=cfg.gateway_url,
         region=region,
         timeout=cfg.timeout,
+        coordination_url=cfg.coordination_api_url,
         follow_redirects=follow_redirects,
     ) as client:
         resp = client.request(method, url, **kwargs)

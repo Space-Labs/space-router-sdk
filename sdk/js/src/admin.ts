@@ -6,7 +6,7 @@
 
 import type { ApiKey, ApiKeyInfo, SpaceRouterAdminOptions } from "./models.js";
 
-const DEFAULT_COORDINATION_URL = "http://localhost:8000";
+const DEFAULT_COORDINATION_URL = "https://coordination.spacerouter.org";
 const DEFAULT_TIMEOUT = 10_000;
 
 /**
@@ -14,7 +14,7 @@ const DEFAULT_TIMEOUT = 10_000;
  *
  * @example
  * ```ts
- * const admin = new SpaceRouterAdmin("http://localhost:8000");
+ * const admin = new SpaceRouterAdmin();
  * const key = await admin.createApiKey("my-agent");
  * console.log(key.api_key); // sr_live_...
  * ```
@@ -78,6 +78,23 @@ export class SpaceRouterAdmin {
         `Failed to revoke API key: ${response.status} ${response.statusText}`,
       );
     }
+  }
+
+  /**
+   * Fetch the proxy network CA certificate.
+   *
+   * Returns the PEM-encoded certificate, or `null` when the proxy
+   * network does not require a custom CA (HTTP 503).
+   */
+  async fetchCaCert(): Promise<string | null> {
+    const response = await this._fetch("/ca-cert", { method: "GET" });
+    if (response.status === 503) return null;
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch CA cert: ${response.status} ${response.statusText}`,
+      );
+    }
+    return response.text();
   }
 
   /** Close — no-op, included for API symmetry with SpaceRouter. */
