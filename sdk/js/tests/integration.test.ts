@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { SpaceRouterAdmin } from "../src/index.js";
+import { SpaceRouterAdmin, SpaceRouter } from "../src/index.js";
 
 const RUN = process.env.SR_INTEGRATION === "1";
 
@@ -29,17 +29,17 @@ describe.skipIf(!RUN)("Integration", () => {
     expect(key.api_key).toMatch(/^sr_live_/);
 
     try {
-      // 2. Proxy a request through the gateway.
-      const proxyUrl = new URL(GATEWAY_URL);
-      const resp = await fetch("https://httpbin.org/ip", {
-        headers: {
-          "Proxy-Authorization": `Basic ${btoa(key.api_key + ":")}`,
-        },
-      });
-      expect(resp.status).toBe(200);
+      // 2. Proxy a request through the gateway using the SDK client.
+      const client = new SpaceRouter(key.api_key, { gatewayUrl: GATEWAY_URL });
+      try {
+        const resp = await client.get("https://httpbin.org/ip");
+        expect(resp.status).toBe(200);
 
-      const body = (await resp.json()) as { origin: string };
-      expect(body.origin).toBeDefined();
+        const body = (await resp.json()) as { origin: string };
+        expect(body.origin).toBeDefined();
+      } finally {
+        client.close();
+      }
     } finally {
       // 3. Cleanup: revoke the key.
       await admin.revokeApiKey(key.id);
