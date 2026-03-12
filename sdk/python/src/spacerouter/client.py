@@ -19,8 +19,6 @@ from spacerouter.exceptions import (
 )
 from spacerouter.models import ProxyResponse
 
-IpType = Literal["residential", "mobile", "datacenter", "business"]
-
 _DEFAULT_HTTP_GATEWAY = "http://localhost:8080"
 _DEFAULT_SOCKS5_GATEWAY = "socks5://localhost:1080"
 
@@ -39,7 +37,6 @@ def _build_proxy(
     api_key: str,
     gateway_url: str,
     protocol: str,
-    ip_type: str | None,
     region: str | None,
 ) -> httpx.Proxy | str:
     """Build an httpx-compatible proxy specification with embedded credentials."""
@@ -57,8 +54,6 @@ def _build_proxy(
     # request) so the gateway can read them for node selection.  httpx.Proxy
     # accepts a ``headers`` dict that is sent with every proxy negotiation.
     proxy_headers: dict[str, str] = {}
-    if ip_type:
-        proxy_headers["X-SpaceRouter-IP-Type"] = ip_type
     if region:
         _validate_region(region)
         proxy_headers["X-SpaceRouter-Region"] = region
@@ -131,7 +126,6 @@ class SpaceRouter:
         *,
         gateway_url: str = _DEFAULT_HTTP_GATEWAY,
         protocol: Literal["http", "socks5"] = "http",
-        ip_type: IpType | None = None,
         region: str | None = None,
         timeout: float = 30.0,
         **httpx_kwargs: Any,
@@ -139,11 +133,10 @@ class SpaceRouter:
         self._api_key = api_key
         self._gateway_url = gateway_url
         self._protocol = protocol
-        self._ip_type = ip_type
         self._region = region
         self._timeout = timeout
 
-        proxy = _build_proxy(api_key, gateway_url, protocol, ip_type, region)
+        proxy = _build_proxy(api_key, gateway_url, protocol, region)
         self._client = httpx.Client(proxy=proxy, timeout=timeout, **httpx_kwargs)
 
     # -- HTTP methods -------------------------------------------------------
@@ -177,7 +170,6 @@ class SpaceRouter:
     def with_routing(
         self,
         *,
-        ip_type: IpType | None = None,
         region: str | None = None,
     ) -> SpaceRouter:
         """Return a new client with different routing preferences."""
@@ -185,7 +177,6 @@ class SpaceRouter:
             self._api_key,
             gateway_url=self._gateway_url,
             protocol=self._protocol,
-            ip_type=ip_type,
             region=region,
             timeout=self._timeout,
         )
@@ -229,7 +220,6 @@ class AsyncSpaceRouter:
         *,
         gateway_url: str = _DEFAULT_HTTP_GATEWAY,
         protocol: Literal["http", "socks5"] = "http",
-        ip_type: IpType | None = None,
         region: str | None = None,
         timeout: float = 30.0,
         **httpx_kwargs: Any,
@@ -237,11 +227,10 @@ class AsyncSpaceRouter:
         self._api_key = api_key
         self._gateway_url = gateway_url
         self._protocol = protocol
-        self._ip_type = ip_type
         self._region = region
         self._timeout = timeout
 
-        proxy = _build_proxy(api_key, gateway_url, protocol, ip_type, region)
+        proxy = _build_proxy(api_key, gateway_url, protocol, region)
         self._client = httpx.AsyncClient(proxy=proxy, timeout=timeout, **httpx_kwargs)
 
     # -- HTTP methods -------------------------------------------------------
@@ -275,7 +264,6 @@ class AsyncSpaceRouter:
     def with_routing(
         self,
         *,
-        ip_type: IpType | None = None,
         region: str | None = None,
     ) -> AsyncSpaceRouter:
         """Return a new client with different routing preferences."""
@@ -283,7 +271,6 @@ class AsyncSpaceRouter:
             self._api_key,
             gateway_url=self._gateway_url,
             protocol=self._protocol,
-            ip_type=ip_type,
             region=region,
             timeout=self._timeout,
         )

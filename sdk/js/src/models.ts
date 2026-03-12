@@ -1,14 +1,9 @@
-/** IP type for routing preferences. */
-export type IpType = "residential" | "mobile" | "datacenter" | "business";
-
 /** Options for the {@link SpaceRouter} constructor. */
 export interface SpaceRouterOptions {
   /** Proxy gateway URL. Default: `"http://localhost:8080"` */
   gatewayUrl?: string;
   /** Proxy protocol. Default: `"http"` */
   protocol?: "http" | "socks5";
-  /** IP type filter for node selection. */
-  ipType?: IpType;
   /** Region filter — 2-letter country code (ISO 3166-1 alpha-2, e.g. "US"). */
   region?: string;
   /** Request timeout in milliseconds. Default: `30_000` */
