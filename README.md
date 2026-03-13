@@ -1,6 +1,6 @@
-# Space Router SDK
+# SpaceRouter SDK
 
-Client libraries and CLI for the [Space Router](https://spacerouter.org) residential proxy network.
+Client libraries and CLI for the [SpaceRouter](https://spacerouter.org) residential proxy network.
 
 ## Packages
 
@@ -63,11 +63,11 @@ cd cli && pip install -e ".[dev]" && pytest tests/ -v
 
 ## API contract
 
-These packages communicate with the Space Router Proxy Gateway over HTTP/SOCKS5.
+These packages communicate with the SpaceRouter Proxy Gateway over HTTP/SOCKS5.
 
 ## Skills
 
-The `skills/` directory contains Claude Code skills for AI agents to use Space Router. Copy them to your `~/.claude/commands/` directory.
+The `skills/` directory contains Claude Code skills for AI agents to use SpaceRouter. Copy them to your `~/.claude/commands/` directory.
 
 ## License
 
