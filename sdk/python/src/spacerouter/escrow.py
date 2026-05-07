@@ -17,7 +17,10 @@ from spacerouter.payment.eip712 import Receipt, address_to_bytes32
 
 logger = logging.getLogger(__name__)
 
-# Minimal ABI for SDK escrow operations (matches TokenPaymentEscrow.sol)
+# Minimal ABI for SDK escrow operations (matches TokenPaymentEscrow.sol).
+# v1.5.0-rc.11: include custom-error definitions so web3.py auto-decodes
+# reverts like ``WithdrawalNotUnlocked`` instead of bubbling raw selector
+# hex (``0x6307a3e2…``) up to the consumer.
 ESCROW_ABI = [
     {"inputs": [{"type": "uint256", "name": "amount"}], "name": "deposit", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
     {"inputs": [{"type": "address", "name": "beneficiary"}, {"type": "uint256", "name": "amount"}], "name": "depositFor", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
@@ -29,6 +32,19 @@ ESCROW_ABI = [
     {"inputs": [{"type": "address", "name": "client"}, {"type": "string", "name": "requestUUID"}], "name": "isNonceUsed", "outputs": [{"type": "bool"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "WITHDRAWAL_DELAY", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "token", "outputs": [{"type": "address"}], "stateMutability": "view", "type": "function"},
+    # Custom errors declared in TokenPaymentEscrow.sol — keep this list
+    # in sync with the contract source. Omitting any one of them causes
+    # web3.py / viem to fall back to raw selector hex on revert.
+    {"type": "error", "name": "InsufficientBalance", "inputs": [{"type": "uint256", "name": "available"}, {"type": "uint256", "name": "requested"}]},
+    {"type": "error", "name": "WithdrawalAlreadyPending", "inputs": []},
+    {"type": "error", "name": "NoWithdrawalPending", "inputs": []},
+    {"type": "error", "name": "WithdrawalNotUnlocked", "inputs": [{"type": "uint256", "name": "unlockAt"}, {"type": "uint256", "name": "currentTime"}]},
+    {"type": "error", "name": "ArrayLengthMismatch", "inputs": [{"type": "uint256", "name": "receiptsLen"}, {"type": "uint256", "name": "signaturesLen"}]},
+    {"type": "error", "name": "ZeroAmount", "inputs": []},
+    {"type": "error", "name": "ZeroAddress", "inputs": []},
+    {"type": "error", "name": "NotOperator", "inputs": []},
+    {"type": "error", "name": "NodeAlreadyRegistered", "inputs": [{"type": "bytes32", "name": "nodeAddress"}]},
+    {"type": "error", "name": "NotEOA", "inputs": [{"type": "address", "name": "account"}]},
 ]
 
 ERC20_ABI = [
@@ -79,7 +95,18 @@ class EscrowClient:
     # ── Read ──────────────────────────────────────────────────────────
 
     def balance(self, address: str) -> int:
-        """Query escrow balance for an address (wei)."""
+        """Query escrow balance for an address (wei).
+
+        Reads ``getBalance`` on the contract — the on-chain ``_balances``
+        slot. **This value is unaffected by ``initiate_withdrawal`` and
+        ``cancel_withdrawal``**: those methods only flip a pending-request
+        flag on a separate storage slot. Funds remain in the escrow
+        balance until ``execute_withdrawal`` runs after the timelock,
+        at which point ``_balances`` is debited.
+
+        Use ``withdrawal_request(address)`` to inspect any pending
+        request alongside this balance for the full picture.
+        """
         return self._contract.functions.getBalance(to_checksum_address(address)).call()
 
     def token_balance(self, address: str) -> int:

@@ -76,6 +76,49 @@ export const ESCROW_ABI = [
     inputs: [],
     outputs: [],
   },
+  // ── Custom errors ─────────────────────────────────────────────────────
+  // v1.5.0-rc.11: include error definitions so viem auto-decodes reverts
+  // like ``WithdrawalNotUnlocked`` instead of surfacing raw selector hex
+  // (``0x6307a3e2…``). Keep this in sync with TokenPaymentEscrow.sol.
+  {
+    type: "error",
+    name: "InsufficientBalance",
+    inputs: [
+      { name: "available", type: "uint256" },
+      { name: "requested", type: "uint256" },
+    ],
+  },
+  { type: "error", name: "WithdrawalAlreadyPending", inputs: [] },
+  { type: "error", name: "NoWithdrawalPending", inputs: [] },
+  {
+    type: "error",
+    name: "WithdrawalNotUnlocked",
+    inputs: [
+      { name: "unlockAt", type: "uint256" },
+      { name: "currentTime", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "ArrayLengthMismatch",
+    inputs: [
+      { name: "receiptsLen", type: "uint256" },
+      { name: "signaturesLen", type: "uint256" },
+    ],
+  },
+  { type: "error", name: "ZeroAmount", inputs: [] },
+  { type: "error", name: "ZeroAddress", inputs: [] },
+  { type: "error", name: "NotOperator", inputs: [] },
+  {
+    type: "error",
+    name: "NodeAlreadyRegistered",
+    inputs: [{ name: "nodeAddress", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "NotEOA",
+    inputs: [{ name: "account", type: "address" }],
+  },
 ] as const;
 
 export const ERC20_ABI = [
